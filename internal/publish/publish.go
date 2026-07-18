@@ -189,6 +189,13 @@ func (p *Publisher) Publish(ctx context.Context, archives []string) *Result {
 		return res
 	}
 
+	// Clean up the dev repo now that its contents have been promoted to
+	// OutputDir. The dev repo is ephemeral per-publish — `mere dev import`
+	// re-bootstraps it on the next invocation when addressed by --root +
+	// bare name. Removing it prevents unbounded accumulation of package
+	// archives on disk.
+	_ = os.RemoveAll(p.cfg.DevRepoPath())
+
 	res.Success = true
 	return res
 }
