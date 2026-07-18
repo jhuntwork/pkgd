@@ -22,14 +22,14 @@ type Config struct {
 	// lets `mere` own the resolution and bootstrap. See DevRepoPath().
 	MereRoot string
 
-	// DevRepoName is the bare name of the persistent, server-side dev repo
-	// that pkgd owns exclusively (resolved by `mere` to
-	// `<MereRoot>/mere/dev/repo/<DevRepoName>/`). It is the sole source of
-	// truth for publishing: every package ever published through pkgd is
-	// merged into it via `mere dev import`, and `mere release publish`
-	// promotes its current state into OutputDir. This is NOT a scratch
-	// directory — it accumulates state across the lifetime of the service
-	// and must not be deleted or recreated casually.
+	// DevRepoName is the bare name of the server-side dev repo that pkgd
+	// uses as a staging area during each publish cycle (resolved by `mere`
+	// to `<MereRoot>/mere/dev/repo/<DevRepoName>/`). On each publish,
+	// `mere dev import` bootstraps this directory (creating it if absent),
+	// merges new archives into it, then `mere release publish` promotes the
+	// result to OutputDir. The dev repo is removed after a successful
+	// publish and re-created on the next import — it does not accumulate
+	// state across publishes.
 	DevRepoName string
 
 	// OutputDir is the production output directory: the fully-published
