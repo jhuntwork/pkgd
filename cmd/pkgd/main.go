@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"codeberg.org/merelinux/pkgd/internal/config"
+	"codeberg.org/merelinux/pkgd/internal/mirror"
 	"codeberg.org/merelinux/pkgd/internal/publish"
 	"codeberg.org/merelinux/pkgd/internal/serve"
 )
@@ -37,7 +38,15 @@ func run() error {
 		return err
 	}
 
+	backup, err := mirror.New(cfg)
+	if err != nil {
+		return err
+	}
+
 	publisher := publish.NewPublisher(cfg)
+	if backup != nil {
+		publisher = publish.NewPublisher(cfg, backup.Notify)
+	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/publish", publisher.Handler())
@@ -59,6 +68,9 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if backup != nil {
+		backup.Start(ctx)
+	}
 
 	serveErr := make(chan error, 1)
 	go func() {

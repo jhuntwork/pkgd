@@ -7,7 +7,53 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+// MirrorConfig configures the optional S3-compatible backup mirror. Backblaze
+// B2 application keys map to AccessKeyID and SecretAccessKey for the B2 S3
+// endpoint.
+type MirrorConfig struct {
+	Enabled         bool
+	Endpoint        string
+	Region          string
+	Bucket          string
+	Prefix          string
+	AccessKeyID     string
+	SecretAccessKey string
+	RetryInterval   time.Duration
+}
+
+// Validate checks the mirror settings when the mirror is enabled.
+func (m MirrorConfig) Validate() error {
+	if !m.Enabled {
+		return nil
+	}
+
+	var missing []string
+	if m.Endpoint == "" {
+		missing = append(missing, "PKGD_MIRROR_ENDPOINT")
+	}
+	if m.Region == "" {
+		missing = append(missing, "PKGD_MIRROR_REGION")
+	}
+	if m.Bucket == "" {
+		missing = append(missing, "PKGD_MIRROR_BUCKET")
+	}
+	if m.AccessKeyID == "" {
+		missing = append(missing, "PKGD_MIRROR_ACCESS_KEY_ID")
+	}
+	if m.SecretAccessKey == "" {
+		missing = append(missing, "PKGD_MIRROR_SECRET_ACCESS_KEY")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("config: missing mirror setting(s): %s", strings.Join(missing, ", "))
+	}
+	if m.RetryInterval <= 0 {
+		return fmt.Errorf("config: PKGD_MIRROR_RETRY_INTERVAL must be greater than zero")
+	}
+	return nil
+}
 
 // Config holds everything pkgd needs to serve the package repository and
 // accept new publishes. All paths are expected to already exist (or be
@@ -64,6 +110,10 @@ type Config struct {
 	// copies them into the dev repo's own packages/ pool itself. Defaults to
 	// os.TempDir() if unset.
 	TempDir string
+
+	// Mirror configures the optional asynchronous S3-compatible backup of
+	// OutputDir. A configured mirror never blocks or fails the local publish.
+	Mirror MirrorConfig
 }
 
 // DevRepoPath returns the resolved absolute path of the persistent dev repo,
@@ -83,6 +133,17 @@ func envOr(name, def string) string {
 	return def
 }
 
+// durationOr returns the duration in the named environment variable, or def
+// when the variable is unset or empty.
+func durationOr(name, def string) (time.Duration, error) {
+	value := envOr(name, def)
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("config: %s must be a duration: %w", name, err)
+	}
+	return d, nil
+}
+
 // FromEnv loads a Config from environment variables and validates it.
 //
 // Recognized variables:
@@ -95,7 +156,19 @@ func envOr(name, def string) string {
 //	PKGD_PUBLISH_TOKEN      (required) bearer token guarding POST /publish
 //	PKGD_LISTEN_SOCKET      (optional, default "/run/pkgd/pkgd.sock") Unix socket to listen on
 //	PKGD_TEMP_DIR           (optional, default os.TempDir()) upload staging directory
+//	PKGD_MIRROR_ENDPOINT    (optional) S3-compatible endpoint, such as B2's S3 endpoint
+//	PKGD_MIRROR_REGION      (optional) bucket region, required when the mirror is enabled
+//	PKGD_MIRROR_BUCKET      (optional) bucket name
+//	PKGD_MIRROR_PREFIX      (optional, default "pkgd") key prefix inside the bucket
+//	PKGD_MIRROR_ACCESS_KEY_ID (optional) S3 access key ID / B2 key ID
+//	PKGD_MIRROR_SECRET_ACCESS_KEY (optional) S3 secret / B2 application key
+//	PKGD_MIRROR_RETRY_INTERVAL (optional, default "5m") retry interval after a failed sync
 func FromEnv() (Config, error) {
+	retryInterval, err := durationOr("PKGD_MIRROR_RETRY_INTERVAL", "5m")
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
 		MereRoot:       os.Getenv("PKGD_MERE_ROOT"),
 		DevRepoName:    envOr("PKGD_DEV_REPO_NAME", "pkgd"),
@@ -105,7 +178,21 @@ func FromEnv() (Config, error) {
 		PublishToken:   os.Getenv("PKGD_PUBLISH_TOKEN"),
 		ListenSocket:   envOr("PKGD_LISTEN_SOCKET", "/run/pkgd/pkgd.sock"),
 		TempDir:        envOr("PKGD_TEMP_DIR", os.TempDir()),
+		Mirror: MirrorConfig{
+			Endpoint:        os.Getenv("PKGD_MIRROR_ENDPOINT"),
+			Region:          os.Getenv("PKGD_MIRROR_REGION"),
+			Bucket:          os.Getenv("PKGD_MIRROR_BUCKET"),
+			Prefix:          envOr("PKGD_MIRROR_PREFIX", "pkgd"),
+			AccessKeyID:     os.Getenv("PKGD_MIRROR_ACCESS_KEY_ID"),
+			SecretAccessKey: os.Getenv("PKGD_MIRROR_SECRET_ACCESS_KEY"),
+			RetryInterval:   retryInterval,
+		},
 	}
+	cfg.Mirror.Enabled = cfg.Mirror.Endpoint != "" ||
+		cfg.Mirror.Region != "" ||
+		cfg.Mirror.Bucket != "" ||
+		cfg.Mirror.AccessKeyID != "" ||
+		cfg.Mirror.SecretAccessKey != ""
 	return cfg, cfg.Validate()
 }
 
@@ -133,5 +220,5 @@ func (c Config) Validate() error {
 	if len(missing) > 0 {
 		return fmt.Errorf("config: missing required setting(s): %s", strings.Join(missing, ", "))
 	}
-	return nil
+	return c.Mirror.Validate()
 }

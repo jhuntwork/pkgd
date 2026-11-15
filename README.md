@@ -44,7 +44,27 @@ than hardcoding a single-handler assumption anywhere.
 Environment variables (see `internal/config/config.go` for the full
 list): `PKGD_MERE_ROOT`, `PKGD_DEV_REPO_NAME`, `PKGD_OUTPUT_DIR`,
 `PKGD_MERE_BIN`, `PKGD_SIGNING_KEY_PATH`, `PKGD_PUBLISH_TOKEN`,
-`PKGD_LISTEN_SOCKET`, `PKGD_TEMP_DIR`. See `deploy/pkgd.env.example`.
+`PKGD_LISTEN_SOCKET`, `PKGD_TEMP_DIR`, and the optional `PKGD_MIRROR_*`
+settings.
+
+## Backup mirror
+
+When the `PKGD_MIRROR_*` settings are present, pkgd asynchronously
+reconciles every regular file under `PKGD_OUTPUT_DIR` with an
+S3-compatible object-store prefix. The local Mere publish remains the source
+of truth: a mirror outage does not fail `POST /publish`. The worker retries
+failed syncs at `PKGD_MIRROR_RETRY_INTERVAL` and performs a full repair sync
+when pkgd starts.
+
+The synchronizer uploads local files, then deletes remote objects under its
+configured prefix that are absent from `PKGD_OUTPUT_DIR`. Package archives
+are treated as immutable because Mere gives them content-addressed names;
+`repo.db` and other non-package files are replaced on each sync.
+
+Backblaze B2 application keys are used as the S3 access key ID and secret
+access key. The key must be restricted to the backup bucket and have only the
+permissions needed to list, read, write, and delete objects there. Keep the
+secret out of GitHub Actions and out of process command lines.
 
 The dev repo is addressed by `--root` (`PKGD_MERE_ROOT`) + bare name
 (`PKGD_DEV_REPO_NAME`, default `"pkgd"`), not by its resolved absolute
