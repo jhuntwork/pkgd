@@ -59,6 +59,9 @@ func New(cfg config.Config) (*Syncer, error) {
 	if !cfg.Mirror.Enabled {
 		return nil, nil
 	}
+	if err := cfg.Mirror.Validate(); err != nil {
+		return nil, err
+	}
 
 	prefix, err := normalizePrefix(cfg.Mirror.Prefix)
 	if err != nil {
