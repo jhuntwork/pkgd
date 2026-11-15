@@ -76,6 +76,11 @@ type Result struct {
 type Publisher struct {
 	cfg config.Config
 
+	// onPublished is called after local Mere publication succeeds. The
+	// callback only notifies the asynchronous backup mirror; it does not
+	// participate in the HTTP response or hold up the local publish.
+	onPublished func()
+
 	// mu serializes every write to the persistent dev repo. This is
 	// defense in depth — `mere`'s own flock is the real correctness
 	// guarantee — but it keeps pkgd from ever running two `mere`
@@ -84,9 +89,15 @@ type Publisher struct {
 	mu sync.Mutex
 }
 
-// NewPublisher returns a Publisher for the given config.
-func NewPublisher(cfg config.Config) *Publisher {
-	return &Publisher{cfg: cfg}
+// NewPublisher returns a Publisher for the given config. An optional callback
+// is notified after a successful local publish, typically to wake the backup
+// mirror worker.
+func NewPublisher(cfg config.Config, onPublished ...func()) *Publisher {
+	var callback func()
+	if len(onPublished) > 0 {
+		callback = onPublished[0]
+	}
+	return &Publisher{cfg: cfg, onPublished: callback}
 }
 
 // Handler returns the bearer-token-authenticated POST /publish handler.
@@ -195,6 +206,9 @@ func (p *Publisher) Publish(ctx context.Context, archives []string) *Result {
 	// bare name. Removing it prevents unbounded accumulation of package
 	// archives on disk.
 	_ = os.RemoveAll(p.cfg.DevRepoPath())
+	if p.onPublished != nil {
+		p.onPublished()
+	}
 
 	res.Success = true
 	return res

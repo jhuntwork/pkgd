@@ -65,3 +65,8 @@ tooling to perform it automatically.
 7. Install the nginx config from `nginx.conf.example`, making sure nginx's
    worker user can reach `/run/pkgd/pkgd.sock` (group membership, matching
    the socket's `0660` permissions pkgd sets at startup).
+8. If enabling the backup mirror, provide the `PKGD_MIRROR_*` settings through
+   a protected service environment. Do not put the B2 application key in a
+   command-line argument or in a GitHub Actions secret used by recipe builds.
+   The mirror runs asynchronously and retries without affecting local package
+   publication.
